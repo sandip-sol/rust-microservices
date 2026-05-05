@@ -1,0 +1,35 @@
+[dependencies]
+actix-web = "4"
+tokio = { version = "1", features = ["full"] }
+
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+sqlx = { version = "0.8", features = [
+  "postgres",
+  "runtime-tokio-rustls",
+  "uuid",
+  "chrono",
+  "migrate"
+] }
+
+redis = { version = "0.32", features = ["tokio-comp"] }
+
+jsonwebtoken = "10"
+argon2 = "0.5"
+uuid = { version = "1", features = ["v4", "serde"] }
+chrono = { version = "0.4", features = ["serde"] }
+
+reqwest = { version = "0.12", features = ["json", "stream", "rustls-tls"] }
+bytes = "1"
+
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
+
+thiserror = "2"
+anyhow = "1"
+
+dotenvy = "0.15"
+config = "0.14"
+
+futures-util = "0.3"

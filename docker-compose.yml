@@ -1,0 +1,18 @@
+version: "3.9"
+
+services:
+  postgres:
+    image: postgres:16
+    container_name: sentinel_postgres
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: sentinel_gateway
+    ports:
+      - "5432:5432"
+
+  redis:
+    image: redis:7
+    container_name: sentinel_redis
+    ports:
+      - "6379:6379"
