@@ -1,9 +1,13 @@
 use actix_web::{App, http::StatusCode, test, web};
+use chrono::Utc;
 use redis::Client as RedisClient;
 use sentinel_api_gateway::{
     app::state::AppState,
+    auth::jwt::generate_access_token,
     config::settings::Settings,
     errors::json_config,
+    middleware::auth::{AuthenticatedUser, RequireAdmin, RequireService, RequireUser},
+    models::user::User,
     repositories::{
         refresh_token_repository::RefreshTokenRepository, user_repository::UserRepository,
     },
@@ -56,6 +60,47 @@ fn test_app_state_with_pool(settings: Settings, db_pool: PgPool) -> AppState {
         refresh_token_repository,
         auth_service,
     }
+}
+
+fn token_for_role(role: &str, settings: &Settings) -> String {
+    let user = User {
+        id: Uuid::new_v4(),
+        email: format!("{role}-token@example.com"),
+        password_hash: "not-used".to_string(),
+        role: role.to_string(),
+        created_at: Utc::now(),
+    };
+
+    generate_access_token(&user, settings)
+        .expect("test token should be generated")
+        .0
+}
+
+async fn protected_user(user: AuthenticatedUser) -> actix_web::HttpResponse {
+    actix_web::HttpResponse::Ok().json(serde_json::json!({
+        "id": user.user_id,
+        "email": user.email(),
+        "role": user.role_name()
+    }))
+}
+
+async fn user_role_route(_: RequireUser) -> actix_web::HttpResponse {
+    actix_web::HttpResponse::Ok().finish()
+}
+
+async fn admin_role_route(_: RequireAdmin) -> actix_web::HttpResponse {
+    actix_web::HttpResponse::Ok().finish()
+}
+
+async fn service_role_route(_: RequireService) -> actix_web::HttpResponse {
+    actix_web::HttpResponse::Ok().finish()
+}
+
+fn protected_routes(cfg: &mut web::ServiceConfig) {
+    cfg.route("/protected", web::get().to(protected_user))
+        .route("/protected/user", web::get().to(user_role_route))
+        .route("/protected/admin", web::get().to(admin_role_route))
+        .route("/protected/service", web::get().to(service_role_route));
 }
 
 #[actix_web::test]
@@ -138,6 +183,114 @@ async fn me_rejects_missing_bearer_token_before_database_access() {
     let response = test::call_service(&app, request).await;
 
     assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+}
+
+#[actix_web::test]
+async fn protected_route_accepts_valid_access_token_without_database_access() {
+    let app_state = test_app_state();
+    let token = token_for_role("user", &app_state.settings);
+    let app = test::init_service(
+        App::new()
+            .app_data(web::Data::new(app_state))
+            .app_data(json_config())
+            .configure(protected_routes),
+    )
+    .await;
+
+    let request = test::TestRequest::get()
+        .uri("/protected")
+        .insert_header(("authorization", format!("Bearer {token}")))
+        .to_request();
+
+    let response = test::call_service(&app, request).await;
+
+    assert_eq!(response.status(), StatusCode::OK);
+    let body: Value = test::read_body_json(response).await;
+    assert_eq!(body["email"].as_str(), Some("user-token@example.com"));
+    assert_eq!(body["role"].as_str(), Some("user"));
+}
+
+#[actix_web::test]
+async fn protected_route_rejects_invalid_access_token_without_database_access() {
+    let app = test::init_service(
+        App::new()
+            .app_data(web::Data::new(test_app_state()))
+            .app_data(json_config())
+            .configure(protected_routes),
+    )
+    .await;
+
+    let request = test::TestRequest::get()
+        .uri("/protected")
+        .insert_header(("authorization", "Bearer not-a-jwt"))
+        .to_request();
+
+    let response = test::call_service(&app, request).await;
+
+    assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+}
+
+#[actix_web::test]
+async fn role_gates_return_forbidden_for_insufficient_permissions() {
+    let app_state = test_app_state();
+    let user_token = token_for_role("user", &app_state.settings);
+    let service_token = token_for_role("service", &app_state.settings);
+    let app = test::init_service(
+        App::new()
+            .app_data(web::Data::new(app_state))
+            .app_data(json_config())
+            .configure(protected_routes),
+    )
+    .await;
+
+    let admin_request = test::TestRequest::get()
+        .uri("/protected/admin")
+        .insert_header(("authorization", format!("Bearer {user_token}")))
+        .to_request();
+    let admin_response = test::call_service(&app, admin_request).await;
+    assert_eq!(admin_response.status(), StatusCode::FORBIDDEN);
+
+    let user_request = test::TestRequest::get()
+        .uri("/protected/user")
+        .insert_header(("authorization", format!("Bearer {service_token}")))
+        .to_request();
+    let user_response = test::call_service(&app, user_request).await;
+    assert_eq!(user_response.status(), StatusCode::FORBIDDEN);
+}
+
+#[actix_web::test]
+async fn role_gates_allow_expected_roles() {
+    let app_state = test_app_state();
+    let admin_token = token_for_role("admin", &app_state.settings);
+    let service_token = token_for_role("service", &app_state.settings);
+    let app = test::init_service(
+        App::new()
+            .app_data(web::Data::new(app_state))
+            .app_data(json_config())
+            .configure(protected_routes),
+    )
+    .await;
+
+    let admin_request = test::TestRequest::get()
+        .uri("/protected/admin")
+        .insert_header(("authorization", format!("Bearer {admin_token}")))
+        .to_request();
+    let admin_response = test::call_service(&app, admin_request).await;
+    assert_eq!(admin_response.status(), StatusCode::OK);
+
+    let user_request = test::TestRequest::get()
+        .uri("/protected/user")
+        .insert_header(("authorization", format!("Bearer {admin_token}")))
+        .to_request();
+    let user_response = test::call_service(&app, user_request).await;
+    assert_eq!(user_response.status(), StatusCode::OK);
+
+    let service_request = test::TestRequest::get()
+        .uri("/protected/service")
+        .insert_header(("authorization", format!("Bearer {service_token}")))
+        .to_request();
+    let service_response = test::call_service(&app, service_request).await;
+    assert_eq!(service_response.status(), StatusCode::OK);
 }
 
 #[actix_web::test]

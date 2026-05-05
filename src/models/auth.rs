@@ -1,7 +1,8 @@
 use serde::{Deserialize, Serialize};
-use uuid::Uuid;
 
 use crate::errors::AppError;
+
+pub use crate::auth::claims::Claims as JwtClaims;
 
 #[derive(Debug, Deserialize)]
 pub struct RegisterRequest {
@@ -141,15 +142,6 @@ fn looks_like_email(email: &str) -> bool {
         && !domain.starts_with('.')
         && !domain.ends_with('.')
         && !email.chars().any(char::is_whitespace)
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct JwtClaims {
-    pub sub: Uuid,
-    pub email: String,
-    pub role: String,
-    pub exp: usize,
-    pub iat: usize,
 }
 
 #[derive(Debug, Serialize)]

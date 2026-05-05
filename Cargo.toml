@@ -15,7 +15,7 @@ config = "0.15.22"
 csv = "1.4.0"
 dotenvy = "0.15.7"
 hmac = "0.12.1"
-jsonwebtoken = "10.3.0"
+jsonwebtoken = { version = "10.3.0", features = ["rust_crypto"] }
 redis = { version = "1.1.0", features = ["aio", "tokio-comp"] }
 reqwest = "0.13.2"
 serde = "1.0.228"

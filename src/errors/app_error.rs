@@ -1,4 +1,4 @@
-use actix_web::{http::StatusCode, web, HttpResponse, ResponseError};
+use actix_web::{HttpResponse, ResponseError, http::StatusCode, web};
 use serde::Serialize;
 use thiserror::Error;
 
@@ -14,6 +14,9 @@ pub enum AppError {
 
     #[error("unauthorized: {0}")]
     Unauthorized(String),
+
+    #[error("forbidden: {0}")]
+    Forbidden(String),
 
     #[error("not found: {0}")]
     NotFound(String),
@@ -39,6 +42,7 @@ impl ResponseError for AppError {
         match self {
             AppError::BadRequest(_) => StatusCode::BAD_REQUEST,
             AppError::Unauthorized(_) => StatusCode::UNAUTHORIZED,
+            AppError::Forbidden(_) => StatusCode::FORBIDDEN,
             AppError::NotFound(_) => StatusCode::NOT_FOUND,
             AppError::Conflict(_) => StatusCode::CONFLICT,
             AppError::Database => StatusCode::INTERNAL_SERVER_ERROR,
@@ -60,6 +64,7 @@ impl AppError {
         match self {
             AppError::BadRequest(message)
             | AppError::Unauthorized(message)
+            | AppError::Forbidden(message)
             | AppError::NotFound(message)
             | AppError::Conflict(message) => message.clone(),
             AppError::Database

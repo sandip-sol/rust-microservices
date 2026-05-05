@@ -1,11 +1,7 @@
 use chrono::{Duration, Utc};
-use jsonwebtoken::{decode, encode, DecodingKey, EncodingKey, Header, Validation};
+use jsonwebtoken::{DecodingKey, EncodingKey, Header, Validation, decode, encode};
 
-use crate::{
-    config::settings::Settings,
-    models::auth::JwtClaims,
-    models::user::User,
-};
+use crate::{auth::claims::Claims, config::settings::Settings, models::user::User};
 
 pub fn generate_access_token(
     user: &User,
@@ -15,11 +11,11 @@ pub fn generate_access_token(
     let expires_in = settings.access_token_ttl_minutes * 60;
     let exp = (now + Duration::minutes(settings.access_token_ttl_minutes)).timestamp() as usize;
 
-    let claims = JwtClaims {
-        sub: user.id,
+    let claims = Claims {
+        sub: user.id.to_string(),
         email: user.email.clone(),
         role: user.role.clone(),
-        iat: now.timestamp() as usize,
+        iat: Some(now.timestamp() as usize),
         exp,
     };
 
@@ -35,8 +31,8 @@ pub fn generate_access_token(
 pub fn validate_access_token(
     token: &str,
     settings: &Settings,
-) -> Result<JwtClaims, jsonwebtoken::errors::Error> {
-    let token_data = decode::<JwtClaims>(
+) -> Result<Claims, jsonwebtoken::errors::Error> {
+    let token_data = decode::<Claims>(
         token,
         &DecodingKey::from_secret(settings.jwt_access_secret.as_bytes()),
         &Validation::default(),

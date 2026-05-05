@@ -1,8 +1,9 @@
-use actix_web::{HttpRequest, HttpResponse, web};
+use actix_web::{HttpResponse, web};
 
 use crate::{
     app::state::AppState,
     errors::AppError,
+    middleware::auth::AuthenticatedUser,
     models::auth::{LoginRequest, LogoutRequest, RefreshRequest, RegisterRequest},
 };
 
@@ -41,25 +42,6 @@ pub async fn logout(
     Ok(HttpResponse::NoContent().finish())
 }
 
-pub async fn me(
-    app_state: web::Data<AppState>,
-    request: HttpRequest,
-) -> Result<HttpResponse, AppError> {
-    let access_token = bearer_token(&request)?;
-    let user = app_state.auth_service.current_user(access_token).await?;
-    Ok(HttpResponse::Ok().json(user))
-}
-
-fn bearer_token(request: &HttpRequest) -> Result<&str, AppError> {
-    let header = request
-        .headers()
-        .get("authorization")
-        .ok_or_else(|| AppError::Unauthorized("missing bearer token".to_string()))?
-        .to_str()
-        .map_err(|_| AppError::Unauthorized("invalid bearer token".to_string()))?;
-
-    header
-        .strip_prefix("Bearer ")
-        .filter(|token| !token.trim().is_empty() && token.trim() == *token)
-        .ok_or_else(|| AppError::Unauthorized("invalid bearer token".to_string()))
+pub async fn me(user: AuthenticatedUser) -> Result<HttpResponse, AppError> {
+    Ok(HttpResponse::Ok().json(user.into_response()))
 }

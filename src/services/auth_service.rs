@@ -135,10 +135,14 @@ impl AuthService {
     pub async fn current_user(&self, access_token: &str) -> Result<UserResponse, AppError> {
         let claims = validate_access_token(access_token, &self.settings)
             .map_err(|_| AppError::Unauthorized("invalid access token".to_string()))?;
+        let user_id = claims
+            .sub
+            .parse()
+            .map_err(|_| AppError::Unauthorized("invalid access token".to_string()))?;
 
         let user = self
             .user_repository
-            .find_by_id(claims.sub)
+            .find_by_id(user_id)
             .await
             .map_err(|_| AppError::Database)?
             .ok_or_else(|| AppError::Unauthorized("invalid access token".to_string()))?;
