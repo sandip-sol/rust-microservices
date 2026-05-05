@@ -5,7 +5,7 @@ use sentinel_api_gateway::{
     config::settings::Settings,
     db::postgres::init_postgres_pool,
     errors::json_config,
-    middleware::rate_limit::RateLimit,
+    middleware::{logging::RequestLogging, rate_limit::RateLimit, request_id::RequestId},
     repositories::{
         refresh_token_repository::RefreshTokenRepository, user_repository::UserRepository,
     },
@@ -51,6 +51,8 @@ async fn main() -> std::io::Result<()> {
     HttpServer::new(move || {
         App::new()
             .wrap(RateLimit::automatic())
+            .wrap(RequestLogging::new())
+            .wrap(RequestId::new())
             .app_data(web::Data::new(app_state.clone()))
             .app_data(json_config())
             .configure(health_routes)
