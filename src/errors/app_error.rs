@@ -1,4 +1,4 @@
-use actix_web::{http::StatusCode, HttpResponse, ResponseError};
+use actix_web::{http::StatusCode, web, HttpResponse, ResponseError};
 use serde::Serialize;
 use thiserror::Error;
 
@@ -50,7 +50,27 @@ impl ResponseError for AppError {
 
     fn error_response(&self) -> HttpResponse {
         HttpResponse::build(self.status_code()).json(ErrorBody {
-            error: self.to_string(),
+            error: self.client_message(),
         })
     }
+}
+
+impl AppError {
+    fn client_message(&self) -> String {
+        match self {
+            AppError::BadRequest(message)
+            | AppError::Unauthorized(message)
+            | AppError::NotFound(message)
+            | AppError::Conflict(message) => message.clone(),
+            AppError::Database
+            | AppError::PasswordHash
+            | AppError::TokenCreation
+            | AppError::Internal => "internal server error".to_string(),
+        }
+    }
+}
+
+pub fn json_config() -> web::JsonConfig {
+    web::JsonConfig::default()
+        .error_handler(|_, _| AppError::BadRequest("invalid JSON request body".to_string()).into())
 }

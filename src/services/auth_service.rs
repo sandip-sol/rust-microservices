@@ -4,8 +4,12 @@ use crate::{
         password::{hash_password, verify_password},
     },
     config::settings::Settings,
+    errors::AppError,
     models::{
-        auth::{AuthResponse, LoginRequest, RegisterRequest},
+        auth::{
+            AuthResponse, LoginRequest, RegisterRequest, ValidatedLoginRequest,
+            ValidatedRegisterRequest,
+        },
         user::UserResponse,
     },
     repositories::user_repository::UserRepository,
@@ -25,58 +29,49 @@ impl AuthService {
         }
     }
 
-    pub async fn register(&self, payload: RegisterRequest) -> Result<UserResponse, String> {
-        let email = payload.email.trim().to_lowercase();
-
-        if email.is_empty() || payload.password.trim().is_empty() {
-            return Err("email and password are required".to_string());
-        }
-
-        if payload.password.len() < 8 {
-            return Err("password must be at least 8 characters".to_string());
-        }
+    pub async fn register(&self, payload: RegisterRequest) -> Result<UserResponse, AppError> {
+        let ValidatedRegisterRequest { email, password } = payload.validate()?;
 
         let existing = self
             .user_repository
             .find_by_email(&email)
             .await
-            .map_err(|_| "database error while checking existing user".to_string())?;
+            .map_err(|_| AppError::Database)?;
 
         if existing.is_some() {
-            return Err("user already exists".to_string());
+            return Err(AppError::Conflict("user already exists".to_string()));
         }
 
-        let password_hash =
-            hash_password(&payload.password).map_err(|_| "failed to hash password".to_string())?;
+        let password_hash = hash_password(&password).map_err(|_| AppError::PasswordHash)?;
 
         let user = self
             .user_repository
             .create_user(&email, &password_hash, "user")
             .await
-            .map_err(|_| "failed to create user".to_string())?;
+            .map_err(map_create_user_error)?;
 
         Ok(user.into())
     }
 
-    pub async fn login(&self, payload: LoginRequest) -> Result<AuthResponse, String> {
-        let email = payload.email.trim().to_lowercase();
+    pub async fn login(&self, payload: LoginRequest) -> Result<AuthResponse, AppError> {
+        let ValidatedLoginRequest { email, password } = payload.validate()?;
 
         let user = self
             .user_repository
             .find_by_email(&email)
             .await
-            .map_err(|_| "database error while loading user".to_string())?
-            .ok_or_else(|| "invalid credentials".to_string())?;
+            .map_err(|_| AppError::Database)?
+            .ok_or_else(|| AppError::Unauthorized("invalid credentials".to_string()))?;
 
-        let valid = verify_password(&payload.password, &user.password_hash)
-            .map_err(|_| "failed to verify password".to_string())?;
+        let valid =
+            verify_password(&password, &user.password_hash).map_err(|_| AppError::PasswordHash)?;
 
         if !valid {
-            return Err("invalid credentials".to_string());
+            return Err(AppError::Unauthorized("invalid credentials".to_string()));
         }
 
         let (access_token, expires_in) =
-            generate_access_token(&user, &self.settings).map_err(|_| "failed to issue token".to_string())?;
+            generate_access_token(&user, &self.settings).map_err(|_| AppError::TokenCreation)?;
 
         Ok(AuthResponse {
             access_token,
@@ -85,4 +80,16 @@ impl AuthService {
             user: user.into(),
         })
     }
+}
+
+fn map_create_user_error(error: sqlx::Error) -> AppError {
+    if let sqlx::Error::Database(db_error) = &error {
+        if db_error.constraint() == Some("users_email_key")
+            || db_error.code().as_deref() == Some("23505")
+        {
+            return AppError::Conflict("user already exists".to_string());
+        }
+    }
+
+    AppError::Database
 }
