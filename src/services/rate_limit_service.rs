@@ -55,14 +55,14 @@ pub fn build_rate_limit_key(
 ) -> String {
     format!(
         "{}:{}:{}:{}",
-        sanitize_prefix(prefix),
+        sanitize_rate_limit_prefix(prefix),
         policy.key_segment(),
         subject.key_segment(),
         hash_identifier(subject.identifier())
     )
 }
 
-fn sanitize_prefix(prefix: &str) -> String {
+pub fn sanitize_rate_limit_prefix(prefix: &str) -> String {
     prefix
         .chars()
         .filter(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '_' | '-' | ':'))

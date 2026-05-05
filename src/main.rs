@@ -12,7 +12,7 @@ use sentinel_api_gateway::{
         audit_repository::AuditRepository, refresh_token_repository::RefreshTokenRepository,
         user_repository::UserRepository,
     },
-    routes::{auth::auth_routes, health::health_routes, proxy::proxy_routes},
+    routes::{admin::admin_routes, auth::auth_routes, health::health_routes, proxy::proxy_routes},
     services::{
         audit_service::{ACTION_SYSTEM_STARTUP, AuditService},
         auth_service::AuthService,
@@ -82,6 +82,7 @@ async fn main() -> std::io::Result<()> {
             .app_data(web::PayloadConfig::new(settings.proxy_max_body_bytes))
             .configure(health_routes)
             .configure(auth_routes)
+            .configure(admin_routes)
             .configure(proxy_routes)
     })
     .bind(bind_addr)?
