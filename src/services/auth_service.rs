@@ -18,6 +18,7 @@ use crate::{
     },
 };
 use chrono::{Duration, Utc};
+use uuid::Uuid;
 
 #[derive(Clone)]
 pub struct AuthService {
@@ -120,16 +121,22 @@ impl AuthService {
         self.rotate_auth_response(user, stored_token.id).await
     }
 
-    pub async fn logout(&self, payload: LogoutRequest) -> Result<(), AppError> {
+    pub async fn logout(&self, payload: LogoutRequest) -> Result<Option<Uuid>, AppError> {
         let ValidatedRefreshTokenRequest { refresh_token } = payload.validate()?;
         let token_hash = hash_refresh_token(&refresh_token, &self.settings.jwt_refresh_secret);
+        let user_id = self
+            .refresh_token_repository
+            .find_by_hash(&token_hash)
+            .await
+            .map_err(|_| AppError::Database)?
+            .map(|token| token.user_id);
 
         self.refresh_token_repository
             .revoke_by_hash(&token_hash)
             .await
             .map_err(|_| AppError::Database)?;
 
-        Ok(())
+        Ok(user_id)
     }
 
     pub async fn current_user(&self, access_token: &str) -> Result<UserResponse, AppError> {

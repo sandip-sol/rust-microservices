@@ -9,10 +9,11 @@ use sentinel_api_gateway::{
     middleware::{auth::AuthenticatedUser, rate_limit::RateLimit},
     models::user::User,
     repositories::{
-        refresh_token_repository::RefreshTokenRepository, user_repository::UserRepository,
+        audit_repository::AuditRepository, refresh_token_repository::RefreshTokenRepository,
+        user_repository::UserRepository,
     },
     routes::auth::auth_routes,
-    services::auth_service::AuthService,
+    services::{audit_service::AuditService, auth_service::AuthService},
 };
 use sqlx::postgres::PgPoolOptions;
 use uuid::Uuid;
@@ -60,11 +61,13 @@ fn test_app_state(settings: Settings) -> AppState {
         RedisClient::open(settings.redis_url.as_str()).expect("test Redis URL should be valid");
     let user_repository = UserRepository::new(db_pool.clone());
     let refresh_token_repository = RefreshTokenRepository::new(db_pool.clone());
+    let audit_repository = AuditRepository::new(db_pool.clone());
     let auth_service = AuthService::new(
         user_repository.clone(),
         refresh_token_repository.clone(),
         settings.clone(),
     );
+    let audit_service = AuditService::new(audit_repository.clone());
 
     AppState {
         settings,
@@ -72,7 +75,9 @@ fn test_app_state(settings: Settings) -> AppState {
         redis_client,
         user_repository,
         refresh_token_repository,
+        audit_repository,
         auth_service,
+        audit_service,
     }
 }
 

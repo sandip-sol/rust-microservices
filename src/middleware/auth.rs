@@ -1,7 +1,8 @@
 use std::future::{Ready, ready};
 
-use actix_web::{FromRequest, HttpMessage, HttpRequest, dev::Payload, web};
+use actix_web::{FromRequest, HttpMessage, HttpRequest, ResponseError, dev::Payload, web};
 use serde::Serialize;
+use serde_json::{Value, json};
 use uuid::Uuid;
 
 use crate::{
@@ -11,6 +12,8 @@ use crate::{
         jwt::validate_access_token,
     },
     errors::AppError,
+    models::audit::AuditStatus,
+    services::audit_service::{ACTION_AUTH_TOKEN_REJECTED, ACTION_AUTHORIZATION_DENIED},
 };
 
 #[derive(Debug, Clone)]
@@ -111,7 +114,20 @@ impl FromRequest for RequireService {
 
 fn require_role(request: &HttpRequest, required: Role) -> Result<AuthenticatedUser, AppError> {
     let user = authenticate_request(request)?;
-    user.require_role(required)?;
+    if let Err(error) = user.require_role(required) {
+        audit_request_error(
+            request,
+            Some(user.user_id),
+            ACTION_AUTHORIZATION_DENIED,
+            AuditStatus::Denied,
+            &error,
+            json!({
+                "required_role": required.as_str(),
+                "actual_role": user.role_name(),
+            }),
+        );
+        return Err(error);
+    }
     Ok(user)
 }
 
@@ -123,10 +139,49 @@ fn authenticate_request(request: &HttpRequest) -> Result<AuthenticatedUser, AppE
     let app_state = request
         .app_data::<web::Data<AppState>>()
         .ok_or(AppError::Internal)?;
-    let token = bearer_token(request)?;
-    let claims =
-        validate_access_token(token, &app_state.settings).map_err(|_| invalid_access_token())?;
-    let user = AuthenticatedUser::from_claims(claims.clone())?;
+    let token = match bearer_token(request) {
+        Ok(token) => token,
+        Err(error) => {
+            audit_request_error(
+                request,
+                None,
+                ACTION_AUTH_TOKEN_REJECTED,
+                AuditStatus::Failure,
+                &error,
+                json!({}),
+            );
+            return Err(error);
+        }
+    };
+    let claims = match validate_access_token(token, &app_state.settings) {
+        Ok(claims) => claims,
+        Err(_) => {
+            let error = invalid_access_token();
+            audit_request_error(
+                request,
+                None,
+                ACTION_AUTH_TOKEN_REJECTED,
+                AuditStatus::Failure,
+                &error,
+                json!({}),
+            );
+            return Err(error);
+        }
+    };
+    let user = match AuthenticatedUser::from_claims(claims.clone()) {
+        Ok(user) => user,
+        Err(error) => {
+            audit_request_error(
+                request,
+                None,
+                ACTION_AUTH_TOKEN_REJECTED,
+                AuditStatus::Failure,
+                &error,
+                json!({}),
+            );
+            return Err(error);
+        }
+    };
 
     let mut extensions = request.extensions_mut();
     extensions.insert(claims);
@@ -159,6 +214,46 @@ fn invalid_bearer_token() -> AppError {
 
 fn forbidden() -> AppError {
     AppError::Forbidden("insufficient permissions".to_string())
+}
+
+fn audit_request_error(
+    request: &HttpRequest,
+    user_id: Option<Uuid>,
+    action: &'static str,
+    status: AuditStatus,
+    error: &AppError,
+    mut metadata: Value,
+) {
+    let Some(app_state) = request.app_data::<web::Data<AppState>>() else {
+        return;
+    };
+
+    if let Value::Object(object) = &mut metadata {
+        object.insert(
+            "status_code".to_string(),
+            json!(error.status_code().as_u16()),
+        );
+        object.insert("error_kind".to_string(), json!(app_error_kind(error)));
+    }
+
+    app_state
+        .audit_service
+        .record_request_event_detached(request, user_id, action, status, metadata);
+}
+
+fn app_error_kind(error: &AppError) -> &'static str {
+    match error {
+        AppError::BadRequest(_) => "bad_request",
+        AppError::Unauthorized(_) => "unauthorized",
+        AppError::Forbidden(_) => "forbidden",
+        AppError::NotFound(_) => "not_found",
+        AppError::Conflict(_) => "conflict",
+        AppError::RateLimitExceeded(_) => "rate_limit_exceeded",
+        AppError::Database => "database",
+        AppError::PasswordHash => "password_hash",
+        AppError::TokenCreation => "token_creation",
+        AppError::Internal => "internal",
+    }
 }
 
 #[cfg(test)]

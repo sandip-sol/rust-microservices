@@ -7,12 +7,17 @@ use sentinel_api_gateway::{
     errors::json_config,
     middleware::{logging::RequestLogging, rate_limit::RateLimit, request_id::RequestId},
     repositories::{
-        refresh_token_repository::RefreshTokenRepository, user_repository::UserRepository,
+        audit_repository::AuditRepository, refresh_token_repository::RefreshTokenRepository,
+        user_repository::UserRepository,
     },
     routes::{auth::auth_routes, health::health_routes},
-    services::auth_service::AuthService,
+    services::{
+        audit_service::{ACTION_SYSTEM_STARTUP, AuditService},
+        auth_service::AuthService,
+    },
     telemetry::tracing::init_tracing,
 };
+use serde_json::json;
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
@@ -29,11 +34,13 @@ async fn main() -> std::io::Result<()> {
 
     let user_repository = UserRepository::new(db_pool.clone());
     let refresh_token_repository = RefreshTokenRepository::new(db_pool.clone());
+    let audit_repository = AuditRepository::new(db_pool.clone());
     let auth_service = AuthService::new(
         user_repository.clone(),
         refresh_token_repository.clone(),
         settings.clone(),
     );
+    let audit_service = AuditService::new(audit_repository.clone());
 
     let app_state = AppState {
         settings: settings.clone(),
@@ -41,10 +48,20 @@ async fn main() -> std::io::Result<()> {
         redis_client,
         user_repository,
         refresh_token_repository,
+        audit_repository,
         auth_service,
+        audit_service: audit_service.clone(),
     };
 
     let bind_addr = settings.app_addr();
+    audit_service
+        .record_system_event(
+            ACTION_SYSTEM_STARTUP,
+            json!({
+                "bind_addr": bind_addr,
+            }),
+        )
+        .await;
 
     tracing::info!("starting gateway at {}", bind_addr);
 

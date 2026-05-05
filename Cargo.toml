@@ -26,7 +26,8 @@ sqlx = { version = "0.8.6", features = [
   "runtime-tokio-rustls",
   "uuid",
   "chrono",
-  "migrate"
+  "migrate",
+  "json"
 ] }
 thiserror = "2.0.18"
 tokio = "1.50.0"

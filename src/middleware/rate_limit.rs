@@ -18,9 +18,13 @@ use crate::{
     auth::jwt::validate_access_token,
     cache::rate_limit_store::RedisRateLimitStore,
     errors::AppError,
+    models::audit::AuditStatus,
     models::rate_limit::{RateLimitDecision, RateLimitPolicy, RateLimitSubject},
+    services::audit_service::{ACTION_RATE_LIMIT_EXCEEDED, AuditEvent},
     services::rate_limit_service::RateLimitService,
 };
+use serde_json::json;
+use uuid::Uuid;
 
 const RATE_LIMIT_LIMIT: HeaderName = HeaderName::from_static("x-ratelimit-limit");
 const RATE_LIMIT_REMAINING: HeaderName = HeaderName::from_static("x-ratelimit-remaining");
@@ -123,6 +127,22 @@ where
                 })?;
 
             if !decision.allowed {
+                app_state
+                    .audit_service
+                    .record_safely(AuditEvent::from_request(
+                        request.request(),
+                        audit_user_id(&subject),
+                        ACTION_RATE_LIMIT_EXCEEDED,
+                        AuditStatus::Denied,
+                        json!({
+                            "policy": policy.key_segment(),
+                            "subject_type": subject.key_segment(),
+                            "limit": decision.limit,
+                            "remaining": decision.remaining,
+                            "reset_after_seconds": decision.reset_after.as_secs(),
+                        }),
+                    ))
+                    .await;
                 let response = too_many_requests_response(&decision);
                 return Ok(request.into_response(response).map_into_right_body());
             }
@@ -166,6 +186,13 @@ fn classify_request(
 
 fn is_auth_endpoint(path: &str) -> bool {
     path == "/auth" || path.starts_with("/auth/")
+}
+
+fn audit_user_id(subject: &RateLimitSubject) -> Option<Uuid> {
+    match subject {
+        RateLimitSubject::User(user_id) => Uuid::parse_str(user_id).ok(),
+        RateLimitSubject::Ip(_) => None,
+    }
 }
 
 fn authenticated_subject(
@@ -246,9 +273,10 @@ mod tests {
         config::settings::Settings,
         models::rate_limit::{RateLimitPolicy, RateLimitSubject},
         repositories::{
-            refresh_token_repository::RefreshTokenRepository, user_repository::UserRepository,
+            audit_repository::AuditRepository, refresh_token_repository::RefreshTokenRepository,
+            user_repository::UserRepository,
         },
-        services::auth_service::AuthService,
+        services::{audit_service::AuditService, auth_service::AuthService},
     };
     use actix_web::test as actix_test;
     use redis::Client as RedisClient;
@@ -280,11 +308,13 @@ mod tests {
             RedisClient::open(settings.redis_url.as_str()).expect("test Redis URL should be valid");
         let user_repository = UserRepository::new(db_pool.clone());
         let refresh_token_repository = RefreshTokenRepository::new(db_pool.clone());
+        let audit_repository = AuditRepository::new(db_pool.clone());
         let auth_service = AuthService::new(
             user_repository.clone(),
             refresh_token_repository.clone(),
             settings.clone(),
         );
+        let audit_service = AuditService::new(audit_repository.clone());
 
         AppState {
             settings,
@@ -292,7 +322,9 @@ mod tests {
             redis_client,
             user_repository,
             refresh_token_repository,
+            audit_repository,
             auth_service,
+            audit_service,
         }
     }
 

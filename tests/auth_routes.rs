@@ -6,13 +6,20 @@ use sentinel_api_gateway::{
     auth::jwt::generate_access_token,
     config::settings::Settings,
     errors::json_config,
-    middleware::auth::{AuthenticatedUser, RequireAdmin, RequireService, RequireUser},
+    middleware::{
+        auth::{AuthenticatedUser, RequireAdmin, RequireService, RequireUser},
+        request_id::RequestId,
+    },
     models::user::User,
     repositories::{
-        refresh_token_repository::RefreshTokenRepository, user_repository::UserRepository,
+        audit_repository::AuditRepository, refresh_token_repository::RefreshTokenRepository,
+        user_repository::UserRepository,
     },
     routes::auth::auth_routes,
-    services::auth_service::AuthService,
+    services::{
+        audit_service::{ACTION_AUTH_LOGIN, ACTION_AUTH_REGISTER, AuditService},
+        auth_service::AuthService,
+    },
 };
 use serde_json::Value;
 use sqlx::{PgPool, postgres::PgPoolOptions};
@@ -52,11 +59,13 @@ fn test_app_state_with_pool(settings: Settings, db_pool: PgPool) -> AppState {
         RedisClient::open(settings.redis_url.as_str()).expect("test Redis URL should be valid");
     let user_repository = UserRepository::new(db_pool.clone());
     let refresh_token_repository = RefreshTokenRepository::new(db_pool.clone());
+    let audit_repository = AuditRepository::new(db_pool.clone());
     let auth_service = AuthService::new(
         user_repository.clone(),
         refresh_token_repository.clone(),
         settings.clone(),
     );
+    let audit_service = AuditService::new(audit_repository.clone());
 
     AppState {
         settings,
@@ -64,7 +73,9 @@ fn test_app_state_with_pool(settings: Settings, db_pool: PgPool) -> AppState {
         redis_client,
         user_repository,
         refresh_token_repository,
+        audit_repository,
         auth_service,
+        audit_service,
     }
 }
 
@@ -100,6 +111,18 @@ async fn admin_role_route(_: RequireAdmin) -> actix_web::HttpResponse {
 
 async fn service_role_route(_: RequireService) -> actix_web::HttpResponse {
     actix_web::HttpResponse::Ok().finish()
+}
+
+#[derive(Debug, sqlx::FromRow)]
+struct AuditRow {
+    action: String,
+    status: String,
+    request_id: Option<String>,
+    user_id: Option<Uuid>,
+    resource: Option<String>,
+    ip_address: Option<String>,
+    user_agent: Option<String>,
+    metadata: Value,
 }
 
 fn protected_routes(cfg: &mut web::ServiceConfig) {
@@ -433,6 +456,166 @@ async fn auth_refresh_logout_and_me_flow_with_database_when_available() {
         logged_out_refresh_response.status(),
         StatusCode::UNAUTHORIZED
     );
+
+    sqlx::query("DELETE FROM users WHERE email = $1")
+        .bind(email)
+        .execute(&db_pool)
+        .await
+        .expect("test user cleanup should succeed");
+}
+
+#[actix_web::test]
+async fn auth_routes_write_safe_audit_events_when_database_available() {
+    let Ok(database_url) = std::env::var("DATABASE_URL") else {
+        eprintln!("skipping auth audit integration test because DATABASE_URL is not set");
+        return;
+    };
+
+    let Ok(db_pool) = PgPoolOptions::new()
+        .max_connections(5)
+        .connect(&database_url)
+        .await
+    else {
+        eprintln!("skipping auth audit integration test because DATABASE_URL is unavailable");
+        return;
+    };
+
+    sqlx::migrate!("./migrations")
+        .run(&db_pool)
+        .await
+        .expect("migrations should run");
+
+    let mut settings = test_settings();
+    settings.database_url = database_url;
+    let email = format!("audit-{}@example.com", Uuid::new_v4());
+    let password = "correct horse battery staple";
+    let register_request_id = Uuid::new_v4().to_string();
+    let failed_login_request_id = Uuid::new_v4().to_string();
+    let login_request_id = Uuid::new_v4().to_string();
+
+    let app = test::init_service(
+        App::new()
+            .wrap(RequestId::new())
+            .app_data(web::Data::new(test_app_state_with_pool(
+                settings,
+                db_pool.clone(),
+            )))
+            .app_data(json_config())
+            .configure(auth_routes),
+    )
+    .await;
+
+    let register_request = test::TestRequest::post()
+        .uri("/auth/register")
+        .peer_addr("203.0.113.20:5000".parse().expect("valid socket address"))
+        .insert_header(("x-request-id", register_request_id.as_str()))
+        .insert_header(("user-agent", "AuditAuthTest/1.0"))
+        .set_json(serde_json::json!({
+            "email": email.clone(),
+            "password": password
+        }))
+        .to_request();
+    let register_response = test::call_service(&app, register_request).await;
+    assert_eq!(register_response.status(), StatusCode::CREATED);
+
+    let failed_login_request = test::TestRequest::post()
+        .uri("/auth/login")
+        .peer_addr("203.0.113.21:5000".parse().expect("valid socket address"))
+        .insert_header(("x-request-id", failed_login_request_id.as_str()))
+        .insert_header(("user-agent", "AuditAuthTest/1.0"))
+        .set_json(serde_json::json!({
+            "email": email.clone(),
+            "password": "wrong-password"
+        }))
+        .to_request();
+    let failed_login_response = test::call_service(&app, failed_login_request).await;
+    assert_eq!(failed_login_response.status(), StatusCode::UNAUTHORIZED);
+
+    let login_request = test::TestRequest::post()
+        .uri("/auth/login")
+        .peer_addr("203.0.113.22:5000".parse().expect("valid socket address"))
+        .insert_header(("x-request-id", login_request_id.as_str()))
+        .insert_header(("user-agent", "AuditAuthTest/1.0"))
+        .set_json(serde_json::json!({
+            "email": email.clone(),
+            "password": password
+        }))
+        .to_request();
+    let login_response = test::call_service(&app, login_request).await;
+    assert_eq!(login_response.status(), StatusCode::OK);
+
+    let audit_logs = sqlx::query_as::<_, AuditRow>(
+        r#"
+        SELECT action, status, request_id, user_id, resource, ip_address, user_agent, metadata
+        FROM audit_logs
+        WHERE request_id IN ($1, $2, $3)
+        ORDER BY created_at ASC
+        "#,
+    )
+    .bind(&register_request_id)
+    .bind(&failed_login_request_id)
+    .bind(&login_request_id)
+    .fetch_all(&db_pool)
+    .await
+    .expect("audit events should be queryable");
+
+    assert_eq!(audit_logs.len(), 3);
+
+    let register_audit = audit_logs
+        .iter()
+        .find(|log| log.request_id.as_deref() == Some(register_request_id.as_str()))
+        .expect("register audit event should exist");
+    assert_eq!(register_audit.action, ACTION_AUTH_REGISTER);
+    assert_eq!(register_audit.status, "success");
+    assert!(register_audit.user_id.is_some());
+    assert_eq!(register_audit.resource.as_deref(), Some("/auth/register"));
+    assert_eq!(register_audit.ip_address.as_deref(), Some("203.0.113.20"));
+    assert_eq!(
+        register_audit.user_agent.as_deref(),
+        Some("AuditAuthTest/1.0")
+    );
+    assert_eq!(register_audit.metadata["method"], "POST");
+
+    let failed_login_audit = audit_logs
+        .iter()
+        .find(|log| log.request_id.as_deref() == Some(failed_login_request_id.as_str()))
+        .expect("failed login audit event should exist");
+    assert_eq!(failed_login_audit.action, ACTION_AUTH_LOGIN);
+    assert_eq!(failed_login_audit.status, "failure");
+    assert!(failed_login_audit.user_id.is_none());
+    assert_eq!(failed_login_audit.metadata["error_kind"], "unauthorized");
+
+    let login_audit = audit_logs
+        .iter()
+        .find(|log| log.request_id.as_deref() == Some(login_request_id.as_str()))
+        .expect("login audit event should exist");
+    assert_eq!(login_audit.action, ACTION_AUTH_LOGIN);
+    assert_eq!(login_audit.status, "success");
+    assert!(login_audit.user_id.is_some());
+
+    let audit_text = serde_json::to_string(
+        &audit_logs
+            .iter()
+            .map(|log| &log.metadata)
+            .collect::<Vec<_>>(),
+    )
+    .expect("audit metadata should serialize");
+    assert!(!audit_text.contains(password));
+    assert!(!audit_text.contains("wrong-password"));
+    assert!(!audit_text.contains("access_token"));
+    assert!(!audit_text.contains("refresh_token"));
+
+    for request_id in [
+        register_request_id.as_str(),
+        failed_login_request_id.as_str(),
+        login_request_id.as_str(),
+    ] {
+        sqlx::query("DELETE FROM audit_logs WHERE request_id = $1")
+            .bind(request_id)
+            .execute(&db_pool)
+            .await
+            .expect("audit cleanup should succeed");
+    }
 
     sqlx::query("DELETE FROM users WHERE email = $1")
         .bind(email)
