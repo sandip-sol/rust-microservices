@@ -12,6 +12,9 @@ pub struct Settings {
     pub refresh_token_ttl_days: i64,
     pub user_service_url: String,
     pub payment_service_url: String,
+    pub proxy_timeout_seconds: u64,
+    pub proxy_forward_auth_header: bool,
+    pub proxy_max_body_bytes: usize,
     pub rate_limit_enabled: bool,
     pub rate_limit_anon_per_minute: u32,
     pub rate_limit_auth_per_minute: u32,
@@ -57,6 +60,10 @@ impl Settings {
             payment_service_url: env::var("PAYMENT_SERVICE_URL")
                 .unwrap_or_else(|_| "http://localhost:8082".to_string()),
 
+            proxy_timeout_seconds: parse_u64("PROXY_TIMEOUT_SECONDS", 10),
+            proxy_forward_auth_header: parse_bool("PROXY_FORWARD_AUTH_HEADER", false),
+            proxy_max_body_bytes: parse_usize("PROXY_MAX_BODY_BYTES", 10_485_760),
+
             rate_limit_enabled: parse_bool("RATE_LIMIT_ENABLED", true),
             rate_limit_anon_per_minute: parse_u32("RATE_LIMIT_ANON_PER_MINUTE", 60),
             rate_limit_auth_per_minute: parse_u32("RATE_LIMIT_AUTH_PER_MINUTE", 300),
@@ -97,4 +104,11 @@ fn parse_u64(name: &str, default: u64) -> u64 {
         .unwrap_or_else(|_| default.to_string())
         .parse()
         .unwrap_or_else(|_| panic!("{name} must be a valid u64"))
+}
+
+fn parse_usize(name: &str, default: usize) -> usize {
+    env::var(name)
+        .unwrap_or_else(|_| default.to_string())
+        .parse()
+        .unwrap_or_else(|_| panic!("{name} must be a valid usize"))
 }

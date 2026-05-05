@@ -38,7 +38,7 @@ src/
   telemetry/       Tracing/logging setup
 ```
 
-Several directories such as `proxy`, `middleware`, admin routes, rate limiting, refresh tokens, and audit logging are scaffolded for future gateway functionality but are not fully implemented yet.
+Admin routes and deployment-oriented gateway features are still future work.
 
 ## Prerequisites
 
@@ -73,6 +73,10 @@ REFRESH_TOKEN_TTL_DAYS=7
 
 USER_SERVICE_URL=http://localhost:8081
 PAYMENT_SERVICE_URL=http://localhost:8082
+
+PROXY_TIMEOUT_SECONDS=10
+PROXY_FORWARD_AUTH_HEADER=false
+PROXY_MAX_BODY_BYTES=10485760
 
 RATE_LIMIT_ENABLED=true
 RATE_LIMIT_ANON_PER_MINUTE=60

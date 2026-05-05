@@ -20,4 +20,5 @@ pub struct AppState {
     pub audit_repository: AuditRepository,
     pub auth_service: AuthService,
     pub audit_service: AuditService,
+    pub proxy_http_client: reqwest::Client,
 }

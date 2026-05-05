@@ -294,6 +294,9 @@ mod tests {
             refresh_token_ttl_days: 7,
             user_service_url: "http://localhost:8081".to_string(),
             payment_service_url: "http://localhost:8082".to_string(),
+            proxy_timeout_seconds: 10,
+            proxy_forward_auth_header: false,
+            proxy_max_body_bytes: 10_485_760,
             rate_limit_enabled: true,
             rate_limit_anon_per_minute: 60,
             rate_limit_auth_per_minute: 300,
@@ -325,6 +328,7 @@ mod tests {
             audit_repository,
             auth_service,
             audit_service,
+            proxy_http_client: reqwest::Client::new(),
         }
     }
 

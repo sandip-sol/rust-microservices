@@ -249,6 +249,8 @@ fn app_error_kind(error: &AppError) -> &'static str {
         AppError::NotFound(_) => "not_found",
         AppError::Conflict(_) => "conflict",
         AppError::RateLimitExceeded(_) => "rate_limit_exceeded",
+        AppError::BadGateway(_) => "bad_gateway",
+        AppError::GatewayTimeout(_) => "gateway_timeout",
         AppError::Database => "database",
         AppError::PasswordHash => "password_hash",
         AppError::TokenCreation => "token_creation",

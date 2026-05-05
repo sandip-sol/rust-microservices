@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use actix_web::{App, HttpServer, web};
 use sentinel_api_gateway::{
     app::state::AppState,
@@ -10,7 +12,7 @@ use sentinel_api_gateway::{
         audit_repository::AuditRepository, refresh_token_repository::RefreshTokenRepository,
         user_repository::UserRepository,
     },
-    routes::{auth::auth_routes, health::health_routes},
+    routes::{auth::auth_routes, health::health_routes, proxy::proxy_routes},
     services::{
         audit_service::{ACTION_SYSTEM_STARTUP, AuditService},
         auth_service::AuthService,
@@ -41,6 +43,10 @@ async fn main() -> std::io::Result<()> {
         settings.clone(),
     );
     let audit_service = AuditService::new(audit_repository.clone());
+    let proxy_http_client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(settings.proxy_timeout_seconds))
+        .build()
+        .expect("failed to create proxy HTTP client");
 
     let app_state = AppState {
         settings: settings.clone(),
@@ -51,6 +57,7 @@ async fn main() -> std::io::Result<()> {
         audit_repository,
         auth_service,
         audit_service: audit_service.clone(),
+        proxy_http_client,
     };
 
     let bind_addr = settings.app_addr();
@@ -72,8 +79,10 @@ async fn main() -> std::io::Result<()> {
             .wrap(RequestId::new())
             .app_data(web::Data::new(app_state.clone()))
             .app_data(json_config())
+            .app_data(web::PayloadConfig::new(settings.proxy_max_body_bytes))
             .configure(health_routes)
             .configure(auth_routes)
+            .configure(proxy_routes)
     })
     .bind(bind_addr)?
     .run()

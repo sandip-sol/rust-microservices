@@ -27,6 +27,12 @@ pub enum AppError {
     #[error("rate limit exceeded: {0}")]
     RateLimitExceeded(String),
 
+    #[error("bad gateway: {0}")]
+    BadGateway(String),
+
+    #[error("gateway timeout: {0}")]
+    GatewayTimeout(String),
+
     #[error("database error")]
     Database,
 
@@ -49,6 +55,8 @@ impl ResponseError for AppError {
             AppError::NotFound(_) => StatusCode::NOT_FOUND,
             AppError::Conflict(_) => StatusCode::CONFLICT,
             AppError::RateLimitExceeded(_) => StatusCode::TOO_MANY_REQUESTS,
+            AppError::BadGateway(_) => StatusCode::BAD_GATEWAY,
+            AppError::GatewayTimeout(_) => StatusCode::GATEWAY_TIMEOUT,
             AppError::Database => StatusCode::INTERNAL_SERVER_ERROR,
             AppError::PasswordHash => StatusCode::INTERNAL_SERVER_ERROR,
             AppError::TokenCreation => StatusCode::INTERNAL_SERVER_ERROR,
@@ -71,7 +79,9 @@ impl AppError {
             | AppError::Forbidden(message)
             | AppError::NotFound(message)
             | AppError::Conflict(message)
-            | AppError::RateLimitExceeded(message) => message.clone(),
+            | AppError::RateLimitExceeded(message)
+            | AppError::BadGateway(message)
+            | AppError::GatewayTimeout(message) => message.clone(),
             AppError::Database
             | AppError::PasswordHash
             | AppError::TokenCreation

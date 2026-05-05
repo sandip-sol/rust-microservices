@@ -31,6 +31,9 @@ fn test_settings(prefix: String) -> Settings {
         refresh_token_ttl_days: 7,
         user_service_url: "http://localhost:8081".to_string(),
         payment_service_url: "http://localhost:8082".to_string(),
+        proxy_timeout_seconds: 10,
+        proxy_forward_auth_header: false,
+        proxy_max_body_bytes: 10_485_760,
         rate_limit_enabled: true,
         rate_limit_anon_per_minute: 1,
         rate_limit_auth_per_minute: 1,
@@ -78,6 +81,7 @@ fn test_app_state(settings: Settings) -> AppState {
         audit_repository,
         auth_service,
         audit_service,
+        proxy_http_client: reqwest::Client::new(),
     }
 }
 

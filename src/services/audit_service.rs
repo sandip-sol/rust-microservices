@@ -32,6 +32,7 @@ pub const ACTION_AUTH_ME: &str = "auth.me";
 pub const ACTION_AUTH_TOKEN_REJECTED: &str = "auth.access_token.rejected";
 pub const ACTION_AUTHORIZATION_DENIED: &str = "authorization.denied";
 pub const ACTION_RATE_LIMIT_EXCEEDED: &str = "rate_limit.exceeded";
+pub const ACTION_PROXY_FAILURE: &str = "proxy.failure";
 pub const ACTION_SYSTEM_STARTUP: &str = "system.startup";
 
 #[derive(Clone)]
