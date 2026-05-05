@@ -30,6 +30,12 @@ fn test_settings() -> Settings {
         refresh_token_ttl_days: 7,
         user_service_url: "http://localhost:8081".to_string(),
         payment_service_url: "http://localhost:8082".to_string(),
+        rate_limit_enabled: true,
+        rate_limit_anon_per_minute: 60,
+        rate_limit_auth_per_minute: 300,
+        rate_limit_auth_endpoint_per_minute: 10,
+        rate_limit_window_seconds: 60,
+        rate_limit_redis_prefix: "rate_limit_test".to_string(),
     }
 }
 

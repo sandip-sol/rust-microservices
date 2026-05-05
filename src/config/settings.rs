@@ -12,6 +12,12 @@ pub struct Settings {
     pub refresh_token_ttl_days: i64,
     pub user_service_url: String,
     pub payment_service_url: String,
+    pub rate_limit_enabled: bool,
+    pub rate_limit_anon_per_minute: u32,
+    pub rate_limit_auth_per_minute: u32,
+    pub rate_limit_auth_endpoint_per_minute: u32,
+    pub rate_limit_window_seconds: u64,
+    pub rate_limit_redis_prefix: String,
 }
 
 impl Settings {
@@ -25,11 +31,9 @@ impl Settings {
                 .parse()
                 .expect("APP_PORT must be a valid u16"),
 
-            database_url: env::var("DATABASE_URL")
-                .expect("DATABASE_URL is required"),
+            database_url: env::var("DATABASE_URL").expect("DATABASE_URL is required"),
 
-            redis_url: env::var("REDIS_URL")
-                .expect("REDIS_URL is required"),
+            redis_url: env::var("REDIS_URL").expect("REDIS_URL is required"),
 
             jwt_access_secret: env::var("JWT_ACCESS_SECRET")
                 .expect("JWT_ACCESS_SECRET is required"),
@@ -52,10 +56,45 @@ impl Settings {
 
             payment_service_url: env::var("PAYMENT_SERVICE_URL")
                 .unwrap_or_else(|_| "http://localhost:8082".to_string()),
+
+            rate_limit_enabled: parse_bool("RATE_LIMIT_ENABLED", true),
+            rate_limit_anon_per_minute: parse_u32("RATE_LIMIT_ANON_PER_MINUTE", 60),
+            rate_limit_auth_per_minute: parse_u32("RATE_LIMIT_AUTH_PER_MINUTE", 300),
+            rate_limit_auth_endpoint_per_minute: parse_u32(
+                "RATE_LIMIT_AUTH_ENDPOINT_PER_MINUTE",
+                10,
+            ),
+            rate_limit_window_seconds: parse_u64("RATE_LIMIT_WINDOW_SECONDS", 60),
+            rate_limit_redis_prefix: env::var("RATE_LIMIT_REDIS_PREFIX")
+                .unwrap_or_else(|_| "rate_limit".to_string()),
         }
     }
 
     pub fn app_addr(&self) -> String {
         format!("{}:{}", self.app_host, self.app_port)
     }
+}
+
+fn parse_bool(name: &str, default: bool) -> bool {
+    env::var(name)
+        .map(|value| match value.to_ascii_lowercase().as_str() {
+            "1" | "true" | "yes" | "on" => true,
+            "0" | "false" | "no" | "off" => false,
+            _ => panic!("{name} must be a valid boolean"),
+        })
+        .unwrap_or(default)
+}
+
+fn parse_u32(name: &str, default: u32) -> u32 {
+    env::var(name)
+        .unwrap_or_else(|_| default.to_string())
+        .parse()
+        .unwrap_or_else(|_| panic!("{name} must be a valid u32"))
+}
+
+fn parse_u64(name: &str, default: u64) -> u64 {
+    env::var(name)
+        .unwrap_or_else(|_| default.to_string())
+        .parse()
+        .unwrap_or_else(|_| panic!("{name} must be a valid u64"))
 }

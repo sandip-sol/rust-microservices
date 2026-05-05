@@ -24,6 +24,9 @@ pub enum AppError {
     #[error("conflict: {0}")]
     Conflict(String),
 
+    #[error("rate limit exceeded: {0}")]
+    RateLimitExceeded(String),
+
     #[error("database error")]
     Database,
 
@@ -45,6 +48,7 @@ impl ResponseError for AppError {
             AppError::Forbidden(_) => StatusCode::FORBIDDEN,
             AppError::NotFound(_) => StatusCode::NOT_FOUND,
             AppError::Conflict(_) => StatusCode::CONFLICT,
+            AppError::RateLimitExceeded(_) => StatusCode::TOO_MANY_REQUESTS,
             AppError::Database => StatusCode::INTERNAL_SERVER_ERROR,
             AppError::PasswordHash => StatusCode::INTERNAL_SERVER_ERROR,
             AppError::TokenCreation => StatusCode::INTERNAL_SERVER_ERROR,
@@ -66,7 +70,8 @@ impl AppError {
             | AppError::Unauthorized(message)
             | AppError::Forbidden(message)
             | AppError::NotFound(message)
-            | AppError::Conflict(message) => message.clone(),
+            | AppError::Conflict(message)
+            | AppError::RateLimitExceeded(message) => message.clone(),
             AppError::Database
             | AppError::PasswordHash
             | AppError::TokenCreation

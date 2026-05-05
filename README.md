@@ -73,9 +73,17 @@ REFRESH_TOKEN_TTL_DAYS=7
 
 USER_SERVICE_URL=http://localhost:8081
 PAYMENT_SERVICE_URL=http://localhost:8082
+
+RATE_LIMIT_ENABLED=true
+RATE_LIMIT_ANON_PER_MINUTE=60
+RATE_LIMIT_AUTH_PER_MINUTE=300
+RATE_LIMIT_AUTH_ENDPOINT_PER_MINUTE=10
+RATE_LIMIT_WINDOW_SECONDS=60
+RATE_LIMIT_REDIS_PREFIX=rate_limit
 ```
 
 For real environments, replace the JWT secrets with strong secret values.
+Rate limiting uses Redis fixed-window counters and is enabled by default.
 
 ## Running Locally
 
@@ -233,7 +241,6 @@ Planned gateway features suggested by the current module layout:
 
 - Auth middleware for protected routes
 - Refresh token persistence and rotation
-- Redis-backed rate limiting
 - Reverse proxy forwarding
 - Upstream service routing
 - Request ID and structured request logging middleware

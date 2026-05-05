@@ -1,10 +1,11 @@
-use actix_web::{web, App, HttpServer};
+use actix_web::{App, HttpServer, web};
 use sentinel_api_gateway::{
     app::state::AppState,
     cache::redis::init_redis_client,
     config::settings::Settings,
     db::postgres::init_postgres_pool,
     errors::json_config,
+    middleware::rate_limit::RateLimit,
     repositories::{
         refresh_token_repository::RefreshTokenRepository, user_repository::UserRepository,
     },
@@ -49,6 +50,7 @@ async fn main() -> std::io::Result<()> {
 
     HttpServer::new(move || {
         App::new()
+            .wrap(RateLimit::automatic())
             .app_data(web::Data::new(app_state.clone()))
             .app_data(json_config())
             .configure(health_routes)
