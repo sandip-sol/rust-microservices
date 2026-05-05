@@ -5,7 +5,9 @@ use sentinel_api_gateway::{
     config::settings::Settings,
     db::postgres::init_postgres_pool,
     errors::json_config,
-    repositories::user_repository::UserRepository,
+    repositories::{
+        refresh_token_repository::RefreshTokenRepository, user_repository::UserRepository,
+    },
     routes::{auth::auth_routes, health::health_routes},
     services::auth_service::AuthService,
     telemetry::tracing::init_tracing,
@@ -25,13 +27,19 @@ async fn main() -> std::io::Result<()> {
         init_redis_client(&settings.redis_url).expect("failed to create Redis client");
 
     let user_repository = UserRepository::new(db_pool.clone());
-    let auth_service = AuthService::new(user_repository.clone(), settings.clone());
+    let refresh_token_repository = RefreshTokenRepository::new(db_pool.clone());
+    let auth_service = AuthService::new(
+        user_repository.clone(),
+        refresh_token_repository.clone(),
+        settings.clone(),
+    );
 
     let app_state = AppState {
         settings: settings.clone(),
         db_pool,
         redis_client,
         user_repository,
+        refresh_token_repository,
         auth_service,
     };
 

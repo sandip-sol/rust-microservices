@@ -15,6 +15,16 @@ pub struct LoginRequest {
     pub password: String,
 }
 
+#[derive(Debug, Deserialize)]
+pub struct RefreshRequest {
+    pub refresh_token: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct LogoutRequest {
+    pub refresh_token: String,
+}
+
 #[derive(Debug, PartialEq, Eq)]
 pub struct ValidatedRegisterRequest {
     pub email: String,
@@ -25,6 +35,11 @@ pub struct ValidatedRegisterRequest {
 pub struct ValidatedLoginRequest {
     pub email: String,
     pub password: String,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub struct ValidatedRefreshTokenRequest {
+    pub refresh_token: String,
 }
 
 impl RegisterRequest {
@@ -65,6 +80,38 @@ impl LoginRequest {
             password: self.password,
         })
     }
+}
+
+impl RefreshRequest {
+    pub fn validate(self) -> Result<ValidatedRefreshTokenRequest, AppError> {
+        validate_refresh_token(self.refresh_token)
+    }
+}
+
+impl LogoutRequest {
+    pub fn validate(self) -> Result<ValidatedRefreshTokenRequest, AppError> {
+        validate_refresh_token(self.refresh_token)
+    }
+}
+
+fn validate_refresh_token(token: String) -> Result<ValidatedRefreshTokenRequest, AppError> {
+    let token = token.trim().to_string();
+
+    if token.is_empty() {
+        return Err(AppError::BadRequest(
+            "refresh_token is required".to_string(),
+        ));
+    }
+
+    if token.len() > 512 {
+        return Err(AppError::BadRequest(
+            "refresh_token must be 512 characters or fewer".to_string(),
+        ));
+    }
+
+    Ok(ValidatedRefreshTokenRequest {
+        refresh_token: token,
+    })
 }
 
 fn normalize_email(email: &str) -> Result<String, AppError> {
@@ -108,6 +155,7 @@ pub struct JwtClaims {
 #[derive(Debug, Serialize)]
 pub struct AuthResponse {
     pub access_token: String,
+    pub refresh_token: String,
     pub token_type: String,
     pub expires_in: i64,
     pub user: crate::models::user::UserResponse,
@@ -115,7 +163,7 @@ pub struct AuthResponse {
 
 #[cfg(test)]
 mod tests {
-    use super::{LoginRequest, RegisterRequest};
+    use super::{LoginRequest, RefreshRequest, RegisterRequest};
     use crate::errors::AppError;
 
     #[test]
@@ -151,6 +199,17 @@ mod tests {
         }
         .validate()
         .expect_err("invalid email should fail");
+
+        assert!(matches!(error, AppError::BadRequest(_)));
+    }
+
+    #[test]
+    fn refresh_validation_rejects_empty_token() {
+        let error = RefreshRequest {
+            refresh_token: "   ".to_string(),
+        }
+        .validate()
+        .expect_err("empty refresh token should fail");
 
         assert!(matches!(error, AppError::BadRequest(_)));
     }

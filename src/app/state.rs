@@ -3,7 +3,9 @@ use sqlx::PgPool;
 
 use crate::{
     config::settings::Settings,
-    repositories::user_repository::UserRepository,
+    repositories::{
+        refresh_token_repository::RefreshTokenRepository, user_repository::UserRepository,
+    },
     services::auth_service::AuthService,
 };
 
@@ -13,5 +15,6 @@ pub struct AppState {
     pub db_pool: PgPool,
     pub redis_client: RedisClient,
     pub user_repository: UserRepository,
+    pub refresh_token_repository: RefreshTokenRepository,
     pub auth_service: AuthService,
 }
